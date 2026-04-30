@@ -99,6 +99,8 @@ public interface ConfigProvider {
    *
    * @param path the declarative configuration path to update
    * @param newSubtree the new configuration subtree to set at the path
+   * @throws DeclarativeConfigException if an intermediate segment of the path resolves to a
+   *     non-mapping value (e.g., a scalar or list), indicating a schema conflict
    */
   default void updateConfig(String path, DeclarativeConfigProperties newSubtree) {}
 
@@ -116,6 +118,8 @@ public interface ConfigProvider {
    * @param key the property key within the path
    * @param value the new value for the property (must be a scalar: String, Boolean, Long, Double,
    *     Integer, or a List of scalars)
+   * @throws DeclarativeConfigException if an intermediate segment of the path resolves to a
+   *     non-mapping value (e.g., a scalar or list), indicating a schema conflict
    */
   default void setConfigProperty(String path, String key, Object value) {}
 

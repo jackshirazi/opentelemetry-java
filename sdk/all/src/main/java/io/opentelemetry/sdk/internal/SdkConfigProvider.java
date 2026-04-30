@@ -10,6 +10,7 @@ import static java.util.Objects.requireNonNull;
 import io.opentelemetry.api.incubator.config.ConfigChangeListener;
 import io.opentelemetry.api.incubator.config.ConfigChangeRegistration;
 import io.opentelemetry.api.incubator.config.ConfigProvider;
+import io.opentelemetry.api.incubator.config.DeclarativeConfigException;
 import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
 import java.util.HashMap;
 import java.util.List;
@@ -36,7 +37,7 @@ public final class SdkConfigProvider implements ConfigProvider {
   private final AtomicReference<DeclarativeConfigProperties> openTelemetryConfigModel;
   private final ConcurrentMap<String, CopyOnWriteArrayList<ListenerRegistration>> listenersByPath =
       new ConcurrentHashMap<>();
-  private final AtomicBoolean disposed = new AtomicBoolean(false);
+  private final AtomicBoolean isShutdown = new AtomicBoolean(false);
 
   private SdkConfigProvider(DeclarativeConfigProperties openTelemetryConfigModel) {
     this.openTelemetryConfigModel = new AtomicReference<>(requireNonNull(openTelemetryConfigModel));
@@ -63,7 +64,7 @@ public final class SdkConfigProvider implements ConfigProvider {
       String path, ConfigChangeListener listener) {
     requireNonNull(listener, "listener");
     String watchedPath = normalizeAndValidatePath(path); // fail fast on invalid path
-    if (disposed.get()) {
+    if (isShutdown.get()) {
       return NOOP_CHANGE_REGISTRATION;
     }
 
@@ -71,7 +72,7 @@ public final class SdkConfigProvider implements ConfigProvider {
     listenersByPath
         .computeIfAbsent(watchedPath, unused -> new CopyOnWriteArrayList<>())
         .add(registration);
-    if (disposed.get()) {
+    if (isShutdown.get()) {
       registration.close();
       return NOOP_CHANGE_REGISTRATION;
     }
@@ -82,16 +83,16 @@ public final class SdkConfigProvider implements ConfigProvider {
   public void updateConfig(String path, DeclarativeConfigProperties newSubtree) {
     requireNonNull(newSubtree, "newSubtree");
     String normalizedPath = normalizeAndValidatePath(path);
-    if (disposed.get()) {
+    if (isShutdown.get()) {
       return;
     }
     Map<String, Object> subtreeMap = DeclarativeConfigProperties.toMap(newSubtree);
     while (true) {
       DeclarativeConfigProperties current = requireNonNull(openTelemetryConfigModel.get());
       Map<String, Object> rootMap = DeclarativeConfigProperties.toMap(current);
-      setSubtreeAtPath(rootMap, normalizedPath, subtreeMap);
+      Map<String, Object> newRootMap = withSubtreeAtPath(rootMap, normalizedPath, subtreeMap);
       DeclarativeConfigProperties newRoot =
-          DeclarativeConfigProperties.fromMap(rootMap, current.getComponentLoader());
+          YamlDeclarativeConfigProperties.create(newRootMap, current.getComponentLoader());
       if (openTelemetryConfigModel.compareAndSet(current, newRoot)) {
         notifyListeners(current, newRoot);
         return;
@@ -104,15 +105,15 @@ public final class SdkConfigProvider implements ConfigProvider {
     requireNonNull(key, "key");
     requireNonNull(value, "value");
     String normalizedPath = normalizeAndValidatePath(path);
-    if (disposed.get()) {
+    if (isShutdown.get()) {
       return;
     }
     while (true) {
       DeclarativeConfigProperties current = requireNonNull(openTelemetryConfigModel.get());
       Map<String, Object> rootMap = DeclarativeConfigProperties.toMap(current);
-      navigateToPath(rootMap, normalizedPath).put(key, value);
+      Map<String, Object> newRootMap = withPropertyAtPath(rootMap, normalizedPath, key, value);
       DeclarativeConfigProperties newRoot =
-          DeclarativeConfigProperties.fromMap(rootMap, current.getComponentLoader());
+          YamlDeclarativeConfigProperties.create(newRootMap, current.getComponentLoader());
       if (openTelemetryConfigModel.compareAndSet(current, newRoot)) {
         notifyListeners(current, newRoot);
         return;
@@ -130,7 +131,7 @@ public final class SdkConfigProvider implements ConfigProvider {
 
   private void notifyListeners(
       DeclarativeConfigProperties previous, DeclarativeConfigProperties updated) {
-    if (disposed.get()) {
+    if (isShutdown.get()) {
       return;
     }
 
@@ -150,7 +151,7 @@ public final class SdkConfigProvider implements ConfigProvider {
   }
 
   void shutdown() {
-    if (!disposed.compareAndSet(false, true)) {
+    if (!isShutdown.compareAndSet(false, true)) {
       return;
     }
     for (List<ListenerRegistration> registrations : listenersByPath.values()) {
@@ -161,52 +162,98 @@ public final class SdkConfigProvider implements ConfigProvider {
     listenersByPath.clear();
   }
 
-  @SuppressWarnings("unchecked")
-  private static void setSubtreeAtPath(
+  /**
+   * Returns a new map with the subtree at {@code normalizedPath} replaced by {@code subtreeMap}.
+   * Intermediate maps along the path are copied, not mutated.
+   */
+  private static Map<String, Object> withSubtreeAtPath(
       Map<String, Object> rootMap, String normalizedPath, Map<String, Object> subtreeMap) {
     String relativePath = normalizedPath.substring(1);
     if (relativePath.isEmpty()) {
-      rootMap.clear();
-      rootMap.putAll(subtreeMap);
-      return;
+      return new HashMap<>(subtreeMap);
     }
     String[] segments = relativePath.split("\\.");
-    Map<String, Object> parent = rootMap;
-    for (int i = 0; i < segments.length - 1; i++) {
-      Object child = parent.get(segments[i]);
-      if (child instanceof Map) {
-        parent = (Map<String, Object>) child;
-      } else {
-        Map<String, Object> newChild = new HashMap<>();
-        parent.put(segments[i], newChild);
-        parent = newChild;
-      }
+    return copyAndReplace(rootMap, segments, 0, normalizedPath, subtreeMap);
+  }
+
+  /**
+   * Returns a new map with the property {@code key}={@code value} set within the map at {@code
+   * normalizedPath}. Intermediate maps along the path are copied, not mutated.
+   */
+  private static Map<String, Object> withPropertyAtPath(
+      Map<String, Object> rootMap, String normalizedPath, String key, Object value) {
+    String relativePath = normalizedPath.substring(1);
+    if (relativePath.isEmpty()) {
+      Map<String, Object> copy = new HashMap<>(rootMap);
+      copy.put(key, value);
+      return copy;
     }
-    parent.put(segments[segments.length - 1], subtreeMap);
+    String[] segments = relativePath.split("\\.");
+    Map<String, Object> leafMap = resolveToMap(rootMap, segments, normalizedPath);
+    Map<String, Object> updatedLeaf = new HashMap<>(leafMap);
+    updatedLeaf.put(key, value);
+    return copyAndReplace(rootMap, segments, 0, normalizedPath, updatedLeaf);
   }
 
   @SuppressWarnings("unchecked")
-  private static Map<String, Object> navigateToPath(
-      Map<String, Object> rootMap, String normalizedPath) {
-    String relativePath = normalizedPath.substring(1);
-    if (relativePath.isEmpty()) {
-      return rootMap;
+  private static Map<String, Object> copyAndReplace(
+      Map<String, Object> current,
+      String[] segments,
+      int depth,
+      String normalizedPath,
+      Map<String, Object> replacement) {
+    Map<String, Object> copy = new HashMap<>(current);
+    String segment = segments[depth];
+    if (depth == segments.length - 1) {
+      copy.put(segment, replacement);
+      return copy;
     }
+    Object child = current.get(segment);
+    Map<String, Object> childMap;
+    if (child instanceof Map) {
+      childMap = (Map<String, Object>) child;
+    } else if (child == null) {
+      childMap = new HashMap<>();
+    } else {
+      throw schemaConflict(normalizedPath, segment, child);
+    }
+    copy.put(
+        segment, copyAndReplace(childMap, segments, depth + 1, normalizedPath, replacement));
+    return copy;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> resolveToMap(
+      Map<String, Object> rootMap, String[] segments, String normalizedPath) {
     Map<String, Object> current = rootMap;
-    String[] segments = relativePath.split("\\.");
     for (String segment : segments) {
       Object child = current.get(segment);
       if (child instanceof Map) {
         current = (Map<String, Object>) child;
+      } else if (child == null) {
+        return new HashMap<>();
       } else {
-        Map<String, Object> newChild = new HashMap<>();
-        current.put(segment, newChild);
-        current = newChild;
+        throw schemaConflict(normalizedPath, segment, child);
       }
     }
     return current;
   }
 
+  private static DeclarativeConfigException schemaConflict(
+      String normalizedPath, String segment, Object actual) {
+    return new DeclarativeConfigException(
+        "Cannot traverse path '"
+            + normalizedPath
+            + "': segment '"
+            + segment
+            + "' resolves to a "
+            + actual.getClass().getSimpleName()
+            + ", not a mapping");
+  }
+
+  // TODO: optimize later, this is an expensive operation.
+  // But note that we only do this on a mutation, and these are expected to be infrquent
+  // so maybe acceptable
   private static boolean hasSameContents(
       DeclarativeConfigProperties left, DeclarativeConfigProperties right) {
     return DeclarativeConfigProperties.toMap(left).equals(DeclarativeConfigProperties.toMap(right));

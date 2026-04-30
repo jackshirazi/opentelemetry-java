@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.opentelemetry.api.incubator.config.ConfigChangeRegistration;
+import io.opentelemetry.api.incubator.config.DeclarativeConfigException;
 import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
 import io.opentelemetry.common.ComponentLoader;
 import java.util.ArrayList;
@@ -382,6 +383,42 @@ class SdkConfigProviderTest {
         .isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> provider.setConfigProperty(".foo[0]", "key", "value"))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void updateConfig_throwsOnSchemaConflict() {
+    SdkConfigProvider provider =
+        SdkConfigProvider.create(
+            config(
+                mapOf(
+                    "instrumentation/development",
+                    mapOf("general", "scalarValue"))));
+
+    assertThatThrownBy(
+            () ->
+                provider.updateConfig(
+                    ".instrumentation/development.general.http", config(mapOf("enabled", "true"))))
+        .isInstanceOf(DeclarativeConfigException.class)
+        .hasMessageContaining("general")
+        .hasMessageContaining("not a mapping");
+  }
+
+  @Test
+  void setConfigProperty_throwsOnSchemaConflict() {
+    SdkConfigProvider provider =
+        SdkConfigProvider.create(
+            config(
+                mapOf(
+                    "instrumentation/development",
+                    mapOf("general", "scalarValue"))));
+
+    assertThatThrownBy(
+            () ->
+                provider.setConfigProperty(
+                    ".instrumentation/development.general.http", "enabled", "true"))
+        .isInstanceOf(DeclarativeConfigException.class)
+        .hasMessageContaining("general")
+        .hasMessageContaining("not a mapping");
   }
 
   @Test
