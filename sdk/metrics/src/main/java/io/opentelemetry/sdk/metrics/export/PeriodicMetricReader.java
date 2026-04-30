@@ -117,6 +117,9 @@ public final class PeriodicMetricReader implements MetricReader {
     scheduler.shutdown();
     try {
       scheduler.awaitTermination(5, TimeUnit.SECONDS);
+      // Wait for any in-flight export to complete before performing the final collection.
+      // Without this, doRun() sees exportAvailable=false and drops the final metrics.
+      scheduled.flushInProgress.join(5, TimeUnit.SECONDS);
       CompletableResultCode flushResult = scheduled.doRun();
       flushResult.join(5, TimeUnit.SECONDS);
     } catch (InterruptedException e) {
@@ -177,6 +180,7 @@ public final class PeriodicMetricReader implements MetricReader {
   private final class Scheduled implements Runnable {
 
     private final AtomicBoolean exportAvailable = new AtomicBoolean(true);
+    private volatile CompletableResultCode flushInProgress = CompletableResultCode.ofSuccess();
 
     private MetricReaderInstrumentation instrumentation =
         new MetricReaderInstrumentation(COMPONENT_ID, MeterProvider.noop());
@@ -197,6 +201,7 @@ public final class PeriodicMetricReader implements MetricReader {
     CompletableResultCode doRun() {
       CompletableResultCode flushResult = new CompletableResultCode();
       if (exportAvailable.compareAndSet(true, false)) {
+        flushInProgress = flushResult;
         try {
           long startNanoTime = CLOCK.nanoTime();
           String error = null;
@@ -209,8 +214,8 @@ public final class PeriodicMetricReader implements MetricReader {
           }
           if (metricData.isEmpty()) {
             logger.log(Level.FINE, "No metric data to export - skipping export.");
-            flushResult.succeed();
             exportAvailable.set(true);
+            flushResult.succeed();
           } else {
             CompletableResultCode result = exporter.export(metricData);
             result.whenComplete(
@@ -218,8 +223,8 @@ public final class PeriodicMetricReader implements MetricReader {
                   if (!result.isSuccess()) {
                     logger.log(Level.FINE, "Exporter failed");
                   }
-                  flushResult.succeed();
                   exportAvailable.set(true);
+                  flushResult.succeed();
                 });
           }
         } catch (Throwable t) {
