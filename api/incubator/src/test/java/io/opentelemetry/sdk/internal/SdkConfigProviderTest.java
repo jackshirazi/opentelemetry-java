@@ -44,11 +44,9 @@ class SdkConfigProviderTest {
             ".instrumentation/development.general.http",
             (path, newConfig) -> notifications.add(path + "=" + newConfig.getString("enabled")));
 
-    provider.updateOpenTelemetryConfigModel(
-        config(
-            mapOf(
-                "instrumentation/development",
-                mapOf("general", mapOf("http", mapOf("enabled", "true"))))));
+    provider.setConfig(
+        ".instrumentation/development",
+        config(mapOf("general", mapOf("http", mapOf("enabled", "true")))));
 
     assertThat(notifications).containsExactly(".instrumentation/development.general.http=true");
     registration.close();
@@ -71,24 +69,22 @@ class SdkConfigProviderTest {
         ".instrumentation/development.general.http",
         (path, newConfig) -> callbackCount.incrementAndGet());
 
-    provider.updateOpenTelemetryConfigModel(
+    provider.setConfig(
+        ".instrumentation/development",
         config(
             mapOf(
-                "instrumentation/development",
-                mapOf(
-                    "general",
-                    mapOf("http", mapOf("enabled", "true")),
-                    "java",
-                    mapOf("servlet", mapOf("enabled", "false"))))));
-    provider.updateOpenTelemetryConfigModel(
+                "general",
+                mapOf("http", mapOf("enabled", "true")),
+                "java",
+                mapOf("servlet", mapOf("enabled", "false")))));
+    provider.setConfig(
+        ".instrumentation/development",
         config(
             mapOf(
-                "instrumentation/development",
-                mapOf(
-                    "general",
-                    mapOf("http", mapOf("enabled", "true")),
-                    "java",
-                    mapOf("servlet", mapOf("enabled", "false"))))));
+                "general",
+                mapOf("http", mapOf("enabled", "true")),
+                "java",
+                mapOf("servlet", mapOf("enabled", "false")))));
 
     assertThat(callbackCount).hasValue(0);
   }
@@ -106,8 +102,7 @@ class SdkConfigProviderTest {
         ".instrumentation/development.general.http",
         (path, newConfig) -> propertyKeysSeen.add(newConfig.getPropertyKeys()));
 
-    provider.updateOpenTelemetryConfigModel(
-        config(mapOf("instrumentation/development", mapOf("general", mapOf()))));
+    provider.setConfig(".instrumentation/development", config(mapOf("general", mapOf())));
 
     assertThat(propertyKeysSeen).containsExactly(Collections.emptySet());
   }
@@ -128,22 +123,18 @@ class SdkConfigProviderTest {
 
     registration.close();
     registration.close();
-    provider.updateOpenTelemetryConfigModel(
-        config(
-            mapOf(
-                "instrumentation/development",
-                mapOf("general", mapOf("http", mapOf("enabled", "true"))))));
+    provider.setConfig(
+        ".instrumentation/development",
+        config(mapOf("general", mapOf("http", mapOf("enabled", "true")))));
     assertThat(callbackCount).hasValue(0);
 
     provider.addConfigChangeListener(
         ".instrumentation/development.general.http",
         (path, newConfig) -> callbackCount.incrementAndGet());
     provider.shutdown();
-    provider.updateOpenTelemetryConfigModel(
-        config(
-            mapOf(
-                "instrumentation/development",
-                mapOf("general", mapOf("http", mapOf("enabled", "false"))))));
+    provider.setConfig(
+        ".instrumentation/development",
+        config(mapOf("general", mapOf("http", mapOf("enabled", "false")))));
     assertThat(callbackCount).hasValue(0);
   }
 
@@ -165,17 +156,15 @@ class SdkConfigProviderTest {
         ".instrumentation/development.general.http",
         (path, newConfig) -> successfulCallbacks.incrementAndGet());
 
-    provider.updateOpenTelemetryConfigModel(
-        config(
-            mapOf(
-                "instrumentation/development",
-                mapOf("general", mapOf("http", mapOf("enabled", "true"))))));
+    provider.setConfig(
+        ".instrumentation/development",
+        config(mapOf("general", mapOf("http", mapOf("enabled", "true")))));
 
     assertThat(successfulCallbacks).hasValue(1);
   }
 
   @Test
-  void updateConfig_replacesSubtreeAndNotifiesListener() {
+  void setConfig_replacesSubtreeAndNotifiesListener() {
     SdkConfigProvider provider =
         SdkConfigProvider.create(
             config(
@@ -187,14 +176,14 @@ class SdkConfigProviderTest {
         ".instrumentation/development.general.http",
         (path, newConfig) -> notifications.add(path + "=" + newConfig.getString("enabled")));
 
-    provider.updateConfig(
+    provider.setConfig(
         ".instrumentation/development.general.http", config(mapOf("enabled", "true")));
 
     assertThat(notifications).containsExactly(".instrumentation/development.general.http=true");
   }
 
   @Test
-  void updateConfig_doesNotNotifyWhenSubtreeUnchanged() {
+  void setConfig_doesNotNotifyWhenSubtreeUnchanged() {
     SdkConfigProvider provider =
         SdkConfigProvider.create(
             config(
@@ -206,28 +195,28 @@ class SdkConfigProviderTest {
         ".instrumentation/development.general.http",
         (path, newConfig) -> callbackCount.incrementAndGet());
 
-    provider.updateConfig(
+    provider.setConfig(
         ".instrumentation/development.general.http", config(mapOf("enabled", "true")));
 
     assertThat(callbackCount).hasValue(0);
   }
 
   @Test
-  void updateConfig_createsIntermediateNodesIfMissing() {
+  void setConfig_createsIntermediateNodesIfMissing() {
     SdkConfigProvider provider = SdkConfigProvider.create(config(mapOf()));
     List<String> notifications = new ArrayList<>();
     provider.addConfigChangeListener(
         ".instrumentation/development.general.http",
         (path, newConfig) -> notifications.add(path + "=" + newConfig.getString("enabled")));
 
-    provider.updateConfig(
+    provider.setConfig(
         ".instrumentation/development.general.http", config(mapOf("enabled", "true")));
 
     assertThat(notifications).containsExactly(".instrumentation/development.general.http=true");
   }
 
   @Test
-  void updateConfig_noopWhenDisposed() {
+  void setConfig_noopWhenDisposed() {
     SdkConfigProvider provider =
         SdkConfigProvider.create(
             config(
@@ -240,14 +229,15 @@ class SdkConfigProviderTest {
         (path, newConfig) -> callbackCount.incrementAndGet());
     provider.shutdown();
 
-    provider.updateConfig(
+    provider.setConfig(
         ".instrumentation/development.general.http", config(mapOf("enabled", "true")));
+    provider.setConfig(".instrumentation/development.general.http.enabled", "true");
 
     assertThat(callbackCount).hasValue(0);
   }
 
   @Test
-  void setConfigProperty_setsScalarAndNotifiesListener() {
+  void setConfig_setsValueAndNotifiesListener() {
     SdkConfigProvider provider =
         SdkConfigProvider.create(
             config(
@@ -259,13 +249,13 @@ class SdkConfigProviderTest {
         ".instrumentation/development.general.http",
         (path, newConfig) -> notifications.add(path + "=" + newConfig.getString("enabled")));
 
-    provider.setConfigProperty(".instrumentation/development.general.http", "enabled", "true");
+    provider.setConfig(".instrumentation/development.general.http.enabled", "true");
 
     assertThat(notifications).containsExactly(".instrumentation/development.general.http=true");
   }
 
   @Test
-  void setConfigProperty_doesNotNotifyWhenValueUnchanged() {
+  void setConfig_doesNotNotifyWhenValueUnchanged() {
     SdkConfigProvider provider =
         SdkConfigProvider.create(
             config(
@@ -277,26 +267,7 @@ class SdkConfigProviderTest {
         ".instrumentation/development.general.http",
         (path, newConfig) -> callbackCount.incrementAndGet());
 
-    provider.setConfigProperty(".instrumentation/development.general.http", "enabled", "true");
-
-    assertThat(callbackCount).hasValue(0);
-  }
-
-  @Test
-  void setConfigProperty_noopWhenDisposed() {
-    SdkConfigProvider provider =
-        SdkConfigProvider.create(
-            config(
-                mapOf(
-                    "instrumentation/development",
-                    mapOf("general", mapOf("http", mapOf("enabled", "false"))))));
-    AtomicInteger callbackCount = new AtomicInteger();
-    provider.addConfigChangeListener(
-        ".instrumentation/development.general.http",
-        (path, newConfig) -> callbackCount.incrementAndGet());
-    provider.shutdown();
-
-    provider.setConfigProperty(".instrumentation/development.general.http", "enabled", "true");
+    provider.setConfig(".instrumentation/development.general.http.enabled", "true");
 
     assertThat(callbackCount).hasValue(0);
   }
@@ -326,8 +297,8 @@ class SdkConfigProviderTest {
               () -> {
                 try {
                   startLatch.await();
-                  provider.setConfigProperty(
-                      ".instrumentation/development.general.http", "count", String.valueOf(index));
+                  provider.setConfig(
+                      ".instrumentation/development.general.http.count", String.valueOf(index));
                 } catch (InterruptedException e) {
                   Thread.currentThread().interrupt();
                 } finally {
@@ -355,9 +326,9 @@ class SdkConfigProviderTest {
     assertThatThrownBy(
             () -> provider.addConfigChangeListener("instrumentation", (path, newConfig) -> {}))
         .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> provider.updateConfig("instrumentation", config(mapOf())))
+    assertThatThrownBy(() -> provider.setConfig("instrumentation.subtree", config(mapOf())))
         .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> provider.setConfigProperty("instrumentation", "key", "value"))
+    assertThatThrownBy(() -> provider.setConfig("instrumentation.key", "value"))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
@@ -367,9 +338,9 @@ class SdkConfigProviderTest {
 
     assertThatThrownBy(() -> provider.addConfigChangeListener(".*", (path, newConfig) -> {}))
         .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> provider.updateConfig(".foo.*", config(mapOf())))
+    assertThatThrownBy(() -> provider.setConfig(".foo.*.subtree", config(mapOf())))
         .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> provider.setConfigProperty(".foo.*", "key", "value"))
+    assertThatThrownBy(() -> provider.setConfig(".foo.*.key", "value"))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
@@ -379,63 +350,40 @@ class SdkConfigProviderTest {
 
     assertThatThrownBy(() -> provider.addConfigChangeListener(".foo[0]", (path, newConfig) -> {}))
         .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> provider.updateConfig(".foo[0]", config(mapOf())))
+    assertThatThrownBy(() -> provider.setConfig(".foo[0].subtree", config(mapOf())))
         .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> provider.setConfigProperty(".foo[0]", "key", "value"))
+    assertThatThrownBy(() -> provider.setConfig(".foo[0].key", "value"))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
-  void updateConfig_throwsOnSchemaConflict() {
+  void pathValidation_rejectsRootOnlyPath() {
+    SdkConfigProvider provider = SdkConfigProvider.create(config(mapOf()));
+
+    assertThatThrownBy(() -> provider.setConfig(".", config(mapOf())))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("key segment");
+  }
+
+  @Test
+  void setConfig_throwsOnSchemaConflict() {
     SdkConfigProvider provider =
         SdkConfigProvider.create(
             config(mapOf("instrumentation/development", mapOf("general", "scalarValue"))));
 
     assertThatThrownBy(
             () ->
-                provider.updateConfig(
+                provider.setConfig(
                     ".instrumentation/development.general.http", config(mapOf("enabled", "true"))))
         .isInstanceOf(DeclarativeConfigException.class)
         .hasMessageContaining("general")
         .hasMessageContaining("not a mapping");
-  }
-
-  @Test
-  void setConfigProperty_throwsOnSchemaConflict() {
-    SdkConfigProvider provider =
-        SdkConfigProvider.create(
-            config(mapOf("instrumentation/development", mapOf("general", "scalarValue"))));
 
     assertThatThrownBy(
-            () ->
-                provider.setConfigProperty(
-                    ".instrumentation/development.general.http", "enabled", "true"))
+            () -> provider.setConfig(".instrumentation/development.general.http.enabled", "true"))
         .isInstanceOf(DeclarativeConfigException.class)
         .hasMessageContaining("general")
         .hasMessageContaining("not a mapping");
-  }
-
-  @Test
-  void updateConfig_rootPathReplacesEntireConfig() {
-    SdkConfigProvider provider =
-        SdkConfigProvider.create(
-            config(
-                mapOf(
-                    "instrumentation/development",
-                    mapOf("general", mapOf("http", mapOf("enabled", "false"))))));
-    List<String> notifications = new ArrayList<>();
-    provider.addConfigChangeListener(
-        ".instrumentation/development.general.http",
-        (path, newConfig) -> notifications.add(path + "=" + newConfig.getString("enabled")));
-
-    provider.updateConfig(
-        ".",
-        config(
-            mapOf(
-                "instrumentation/development",
-                mapOf("general", mapOf("http", mapOf("enabled", "true"))))));
-
-    assertThat(notifications).containsExactly(".instrumentation/development.general.http=true");
   }
 
   private static DeclarativeConfigProperties config(Map<String, Object> root) {
