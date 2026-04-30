@@ -95,16 +95,6 @@ public final class ExtendedOpenTelemetrySdk extends OpenTelemetrySdk
       return delegate.addConfigChangeListener(path, listener);
     }
 
-    @Override
-    public void updateConfig(String path, DeclarativeConfigProperties newSubtree) {
-      delegate.updateConfig(path, newSubtree);
-    }
-
-    @Override
-    public void setConfigProperty(String path, String key, Object value) {
-      delegate.setConfigProperty(path, key, value);
-    }
-
     private SdkConfigProvider unobfuscate() {
       return delegate;
     }
