@@ -389,10 +389,7 @@ class SdkConfigProviderTest {
   void updateConfig_throwsOnSchemaConflict() {
     SdkConfigProvider provider =
         SdkConfigProvider.create(
-            config(
-                mapOf(
-                    "instrumentation/development",
-                    mapOf("general", "scalarValue"))));
+            config(mapOf("instrumentation/development", mapOf("general", "scalarValue"))));
 
     assertThatThrownBy(
             () ->
@@ -407,10 +404,7 @@ class SdkConfigProviderTest {
   void setConfigProperty_throwsOnSchemaConflict() {
     SdkConfigProvider provider =
         SdkConfigProvider.create(
-            config(
-                mapOf(
-                    "instrumentation/development",
-                    mapOf("general", "scalarValue"))));
+            config(mapOf("instrumentation/development", mapOf("general", "scalarValue"))));
 
     assertThatThrownBy(
             () ->

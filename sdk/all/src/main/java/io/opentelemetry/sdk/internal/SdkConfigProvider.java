@@ -217,8 +217,7 @@ public final class SdkConfigProvider implements ConfigProvider {
     } else {
       throw schemaConflict(normalizedPath, segment, child);
     }
-    copy.put(
-        segment, copyAndReplace(childMap, segments, depth + 1, normalizedPath, replacement));
+    copy.put(segment, copyAndReplace(childMap, segments, depth + 1, normalizedPath, replacement));
     return copy;
   }
 
