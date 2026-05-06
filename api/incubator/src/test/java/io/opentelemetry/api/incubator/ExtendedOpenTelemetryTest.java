@@ -133,8 +133,7 @@ class ExtendedOpenTelemetryTest extends AbstractOpenTelemetryTest {
 
     sdk.close();
 
-    configProvider.setConfigProperty(
-        ".instrumentation/development.general.http", "enabled", "true");
+    configProvider.setConfig(".instrumentation/development.general.http.enabled", "true");
     assertThat(callbackCount.get()).isEqualTo(0);
   }
 
